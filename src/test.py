@@ -63,6 +63,57 @@ def cells_image_preprocessing(path):
     return final_image
 
 
+
+
+
+
+def detect_cc(path):
+    cells = cv2.imread(path,0)
+
+
+    # Step 1: Noise reduction/image smoothing with Gaussian Blur
+    ## Kernel Size: The Gaussian kernel size directly impacts the level of smoothing. A larger kernel size (e.g., (7, 7) or (9, 9)) will smooth more, which might help reduce noise but can also blur small cells.
+    ## Sigma Value: Adjust the sigma value to control the extent of the blurring. A lower sigma value keeps edges sharper, while a higher value enhances noise reduction.
+    blurred = cv2.GaussianBlur(cells, (3, 3), 0)
+
+    # Step 2: Contrast enhancement Contrast Limited Adaptive Histogram Equalization (CLAHE). (useful for highlighting structures in images with uneven illumination)
+    ## Clip Limit: The clip limit controls the contrast enhancement. Higher values (e.g., 3.0 or 4.0) increase contrast but may also amplify noise.
+    ## Tile Grid Size: This parameter affects the region size where the histogram equalization is applied. A smaller tile size (e.g., (4, 4)) enhances local contrast but may over-enhance smaller regions.
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced_image = clahe.apply(blurred)
+
+    # Step 3: Background illumination correction
+    ## A larger sigma leads to a smoother background estimation, which is ideal for removing gradual illumination changes. However, too large a sigma might result in over-smoothing, where actual cell features are mistaken for background.
+    background = gaussian_filter(enhanced_image, sigma=15)
+    corrected_image = enhanced_image - background
+    corrected_image = np.clip(corrected_image, 0, 255)
+    
+    #ret,thresh = cv2.threshold(corrected_image,20,255,cv2.THRESH_BINARY_INV)
+    _, thresh = cv2.threshold(corrected_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    labels= measure.label(thresh, background=0)
+    bg_label = labels[0,0] 
+    labels[labels==bg_label] = 0 # Assign background label to 0
+
+    props = measure.regionprops(labels)
+
+    fig,ax = plt.subplots(1,1)
+    plt.axis('off')
+    ax.imshow(cells,cmap='gray')
+    centroids = np.zeros(shape=(len(np.unique(labels)),2)) # Access the coordinates of centroids
+    for i,prop in enumerate(props):
+        my_centroid = prop.centroid
+        centroids[i,:]= my_centroid
+        ax.plot(my_centroid[1],my_centroid[0],'r.')
+
+    # print(centroids)
+    # fig.savefig('out.png', bbox_inches='tight', pad_inches=0)
+    plt.show()
+
+
+
+
+
 def centroids_detection_with_contour_detection(path, plot=True):
     import imutils
     
@@ -183,7 +234,7 @@ sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessin
 image = np.array(Image.open(img_path).convert("RGB"))
 preprocessed_img = cells_image_preprocessing(img_path)
 
-centroids = centroids_detection_with_contour_detection(img_path)
+centroids = detect_cc(img_path)
 # Plotting with matplotlib
 plt.figure(figsize=(10, 10))
 plt.imshow(preprocessed_img)
@@ -195,6 +246,45 @@ for centroid in centroids:
 plt.title('Detected Cell Centers')
 plt.axis('off')  # Hide axes for better visualization
 plt.show()
+
+
+
+
+
+
+#cell_contour_points = cell_contours_points(preprocessed_img)
+#background_points = get_background_points(preprocessed_img)
+#neg_points = np.concatenate([background_points, cell_contour_points], axis=0)
+#
+#
+##image = cells_image_preprocessing('src\MicrosoftTeams-image_14.webp')
+#fig_size=(10,10)
+#input_points = np.array(neg_points)
+#input_labels = np.array([0 for n in range(len(neg_points))])
+#show_point_on_img(image, fig_size, input_points, input_labels)
+#
+#
+#mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=16)
+#masks = mask_generator.generate(image)
+#Sam2Viz.supervision_show_masks(image, masks)
+
+
+#predictor = SAM2ImagePredictor(sam2)
+#with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+#    predictor.set_image(image)
+#    masks, scores, logits = predictor.predict(
+#        point_coords=input_points,
+#        point_labels=input_labels,
+#        multimask_output=False
+#    )
+#    sorted_ind = np.argsort(scores)[::-1]
+#    masks, scores, logits = masks[sorted_ind], scores[sorted_ind], logits[sorted_ind]
+#
+#    print(masks.shape)
+#    Sam2Viz.show_masks(image, masks, scores, point_coords=input_points, input_labels=input_labels)
+
+
+
 
 
 
