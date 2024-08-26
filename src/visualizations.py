@@ -24,7 +24,7 @@ class Sam2Viz:
 
 
     @staticmethod
-    def show_masks(image, masks, scores, point_coords=None, box_coords=None, input_labels=None, borders=True):
+    def show_masks(image, masks, scores, point_coords=None, box_coords=None, input_labels=None, borders=None):
         """
         Display multiple masks on the image with optional points and boxes.
         """
@@ -44,15 +44,15 @@ class Sam2Viz:
         if box_coords is not None:
             Sam2Viz.show_box(box_coords, plt.gca())
         
-        if score is not None:
-            plt.title(f"Mask {index + 1}, Score: {score:.3f}", fontsize=18)
+        #if score is not None:
+            #plt.title(f"Mask {index + 1}, Score: {score:.3f}", fontsize=18)
         
         plt.axis('off')
         plt.show()
         
 
     @staticmethod
-    def show_mask(mask, ax, random_color=False, borders=True):
+    def show_mask(mask, ax, random_color=False, borders=False):
         """
         Display a binary mask on a given axis with optional random color and borders.
         """
