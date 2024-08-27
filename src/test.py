@@ -232,16 +232,6 @@ def get_background_points(preprocessed_img, min_distance=4, threshold_abs=25):
 
 
 
-
-def detect_cell_centers(preprocessed_image):
-    # Step 1: Use the Laplacian of Gaussian (LoG) method to detect blobs (potential cells)
-    blobs_log = feature.blob_log(preprocessed_image, max_sigma=50, num_sigma=50, threshold=1)
-
-    # Convert the coordinates to (x, y) and store them as centroids
-    centroids = [(int(blob[1]), int(blob[0])) for blob in blobs_log]
-
-    return centroids
-
     
     
 sam2_checkpoint = "segment-anything-2\checkpoints\sam2_hiera_large.pt"
@@ -266,12 +256,6 @@ len_neg = len(cell_contour_points) + len(background_points)
 #neg_and_pos_labels = np.array(neg_and_pos_labs)
 
 
-##############################################TRY TO DO LIKE THAT :
-##############################################    input_point = np.array([[500, 375], [1125, 625]])
-##############################################input_label = np.array([1, 1])
-##############################################
-##############################################
-##############################################ALSO TRY TO BOX THE BLOBS !!!!!!!
 #
 #
 ##image = cells_image_preprocessing('src\MicrosoftTeams-image_14.webp')
@@ -285,7 +269,6 @@ fig_size=(10,10)
 #masks = mask_generator.generate(image)
 #Sam2Viz.supervision_show_masks(image, masks)
 
-#PREDICT MASK FOR EACH POINTS/BOX AND THEN SHOW THEM ALL ON IMAGEEEEEEEEE 
 
 considered_centroids, considered_boxes = individual_centroids, individual_c_boxes  # Assuming you want to process individual blobs
 
