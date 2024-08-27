@@ -69,28 +69,37 @@ def cells_image_preprocessing(path):
 
 
 def detect_cc(preprocessed_image, plot=True):
-
     # Label connected components
     labeled_image, num_features = label(preprocessed_image)
 
     # Define area threshold
     area_threshold = 750
 
-    # Initialize lists for centroids
-    individual_centroids = []
-    multiple_centroids = []
+    # Initialize lists for centroids and bounding boxes
+    individual_centroids, individual_c_boxes = [], []
+    multiple_centroids, multiple_c_boxes = [], []
+
+    # Get the dimensions of the image
+    max_rows, max_cols = preprocessed_image.shape
 
     # Process each labeled region
     for region in regionprops(labeled_image):
+        # Extract the region image
+        y0, x0, y1, x1 = region.bbox
+        
+        # Clamp bounding box coordinates to image dimensions
+        y0 = max(y0, 0)
+        x0 = max(x0, 0)
+        y1 = min(y1, max_rows)
+        x1 = min(x1, max_cols)
+
         if region.area > area_threshold:
             # This region corresponds to connected blobs
             # We'll use a local maximum filter to find multiple centroids
             from scipy.ndimage import maximum_filter
             from scipy.ndimage import label as scipy_label
 
-            # Extract the region image
-            min_row, min_col, max_row, max_col = region.bbox
-            region_image = labeled_image[min_row:max_row, min_col:max_col] == region.label
+            region_image = labeled_image[y0:y1, x0:x1] == region.label
 
             # Apply distance transform
             distance = distance_transform_edt(region_image)
@@ -108,33 +117,72 @@ def detect_cc(preprocessed_image, plot=True):
 
             # Adjust centroids to global image coordinates
             for centroid in maxima_centroids:
-                global_centroid = (centroid[0] + min_row, centroid[1] + min_col)
+                global_centroid = [centroid[0] + y0, centroid[1] + x0]
+
+                # Clamp centroid coordinates to image dimensions
+                global_centroid[0] = max(min(global_centroid[0], max_rows - 1), 0)
+                global_centroid[1] = max(min(global_centroid[1], max_cols - 1), 0)
+
                 multiple_centroids.append(global_centroid)
-        
+                
+                # Create bounding box around each centroid
+                centroid_row, centroid_col = global_centroid
+                box_size = neighborhood_size + 15  # Adjust box size if necessary
+                box_y0 = max(int(centroid_row - box_size / 2), 0)
+                box_x0 = max(int(centroid_col - box_size / 2), 0)
+                box_y1 = min(int(centroid_row + box_size / 2), max_rows)
+                box_x1 = min(int(centroid_col + box_size / 2), max_cols)
+                
+                # Append in x0, y0, x1, y1 format
+                multiple_c_boxes.append([box_x0, box_y0, box_x1, box_y1])
         
         else:
             # Calculate centroid for small regions
-            individual_centroids.append(region.centroid)
+            centroid = list(region.centroid)
+
+            # Clamp centroid coordinates to image dimensions
+            centroid[0] = max(min(centroid[0], max_rows - 1), 0)
+            centroid[1] = max(min(centroid[1], max_cols - 1), 0)
+
+            individual_centroids.append(centroid)
+
+            # Add bounding box for small regions, clamped to image dimensions
+            individual_c_boxes.append([
+                max(x0, 0), max(y0, 0),
+                min(x1, max_cols), min(y1, max_rows)
+            ])
+
+    # Combine individual and multiple centroids
+    combined_centroids = individual_centroids + multiple_centroids
+    input_point = np.array(combined_centroids)
 
     if plot:
         # Plot the results
-        plt.figure(figsize=(10, 10))
-        plt.imshow(preprocessed_image, cmap='gray')
-        plt.title("Centroids of Individual and Connected Blobs")
+        fig, ax = plt.subplots(figsize=(10, 10))
+        ax.imshow(preprocessed_image, cmap='gray')
+        ax.set_title("Centroids and Bounding Boxes of Blobs")
 
         # Plot individual centroids in blue
         for c in individual_centroids:
-            plt.plot(c[1], c[0], 'b+', markersize=15, label='Individual Centroid')
+            ax.plot(c[1], c[0], 'b+', markersize=3)
 
         # Plot multiple centroids from large regions in red
         for c in multiple_centroids:
-            plt.plot(c[1], c[0], 'r+', markersize=15, label='Multiple Centroids')
+            ax.plot(c[1], c[0], 'r+', markersize=3)
 
+        import matplotlib.patches as patches
+        
+        # Plot bounding boxes
+        for bbox in multiple_c_boxes + individual_c_boxes:
+            x0, y0, x1, y1 = bbox
+            width = x1 - x0
+            height = y1 - y0
+            rect = patches.Rectangle((x0, y0), width, height, linewidth=2, edgecolor='g', facecolor='none')
+            ax.add_patch(rect)
 
         plt.show()
 
-    return individual_centroids, multiple_centroids
-
+    return (individual_centroids, individual_c_boxes), (multiple_centroids, multiple_c_boxes)
 
 
 
@@ -199,13 +247,14 @@ def detect_cell_centers(preprocessed_image):
 sam2_checkpoint = "segment-anything-2\checkpoints\sam2_hiera_large.pt"
 model_cfg = "sam2_hiera_l.yaml"
 img_path = r'src\MicrosoftTeams-image_14.webp'
+#img_path = r'src\truck.jpg'
 sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
 
 
 image = np.array(Image.open(img_path).convert("RGB"))
 preprocessed_img = cells_image_preprocessing(img_path)
 
-individual_centroids, multiple_centroids = detect_cc(preprocessed_img)
+(individual_centroids, individual_c_boxes), (multiple_centroids, multiple_c_boxes) = detect_cc(preprocessed_img)
 len_pos = len(individual_centroids) + len(multiple_centroids)
 
 cell_contour_points = cell_contours_points(preprocessed_img)
@@ -217,40 +266,83 @@ len_neg = len(cell_contour_points) + len(background_points)
 #neg_and_pos_labels = np.array(neg_and_pos_labs)
 
 
-points = np.concatenate([individual_centroids, multiple_centroids], axis=0)
-pos_labs = [1] * len_pos
-labels = np.array(pos_labs)
-
+##############################################TRY TO DO LIKE THAT :
+##############################################    input_point = np.array([[500, 375], [1125, 625]])
+##############################################input_label = np.array([1, 1])
+##############################################
+##############################################
+##############################################ALSO TRY TO BOX THE BLOBS !!!!!!!
 #
 #
 ##image = cells_image_preprocessing('src\MicrosoftTeams-image_14.webp')
 fig_size=(10,10)
 #input_points = np.array(neg_points)
 #input_labels = np.array([0 for n in range(len(neg_points))])
-show_point_on_img(image, fig_size, points, labels)
+#show_point_on_img(image, fig_size, points, labels)
 #
 #
 #mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=16)
 #masks = mask_generator.generate(image)
 #Sam2Viz.supervision_show_masks(image, masks)
 
+#PREDICT MASK FOR EACH POINTS/BOX AND THEN SHOW THEM ALL ON IMAGEEEEEEEEE 
+
+considered_centroids, considered_boxes = individual_centroids, individual_c_boxes  # Assuming you want to process individual blobs
+
+print(considered_boxes)
+
+input_points = None #np.array(considered_centroids)
+pos_labs = [1] #* len(considered_centroids)
+input_labels = None #np.array(pos_labs)
+
+input_boxes = np.array([considered_boxes])
+
+#input_boxes = np.array([
+#    [320, 4, 339, 27], 
+#    [388, 7, 415, 27], 
+#    [12, 9, 30, 44], 
+#    [416, 9, 449, 34], 
+#    [85, 14, 126, 28]
+#    ])
+
+
+
+## TRUCKS
+#input_boxes = np.array([
+#    [75, 275, 1725, 850],
+#    [425, 600, 700, 875],
+#    [1375, 550, 1650, 800],
+#    [1240, 675, 1400, 750],
+#])
+
+
+# Convert to 3-channel (RGB) image
+# Convert single-channel binary image to 3-channel RGB image
+
+
 
 predictor = SAM2ImagePredictor(sam2)
-with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-    predictor.set_image(image)
+predictor.set_image(image)
+
+with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):    
+    # Inference.
     masks, scores, logits = predictor.predict(
-        point_coords=points,
-        point_labels=labels,
-        multimask_output=False
+        point_coords=None,
+        point_labels=None,
+        box=input_boxes,
+        multimask_output=False,
     )
-    sorted_ind = np.argsort(scores)[::-1]
-    masks, scores, logits = masks[sorted_ind], scores[sorted_ind], logits[sorted_ind]
-
+    #sorted_ind = np.argsort(scores)[::-1]
+    #masks, scores, logits = masks[sorted_ind], scores[sorted_ind], logits[sorted_ind]
+    
     print(masks.shape)
-    Sam2Viz.show_masks(image, masks, scores, point_coords=points, input_labels=labels)
 
-
-
-
-
+    plt.figure(figsize=(10, 10))
+    plt.imshow(image)
+    for mask in masks:
+        Sam2Viz.show_mask(mask.squeeze(0), plt.gca(), random_color=True)
+    #for box in input_boxes:
+    #    Sam2Viz.show_box(box, plt.gca())
+    plt.axis('off')
+    plt.show()
 
