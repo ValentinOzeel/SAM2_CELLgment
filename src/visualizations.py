@@ -41,6 +41,7 @@ class Sam2Viz:
             plt.show()
 
 
+
     @staticmethod
     def show_mask(mask, ax, random_color=False, borders=False):
         if random_color:
