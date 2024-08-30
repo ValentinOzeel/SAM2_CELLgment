@@ -367,7 +367,7 @@ class CellGment():
 if __name__ == "__main__":
     sam2_checkpoint = "segment-anything-2\checkpoints\sam2_hiera_large.pt"
     model_cfg = "sam2_hiera_l.yaml"
-    img_path = r'src\22636-left.png'
+    img_path = r'src\MicrosoftTeams-image_14.webp'
     img_for_viz = np.array(Image.open(img_path).convert("RGB"))
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
 
@@ -401,9 +401,9 @@ if __name__ == "__main__":
 
 
     ##### Generate automatic masks with SAM2 #####
-    auto_masks = CellGment.sam2_automasks(sam2, three_channels_preprocessed_img)
+    auto_masks = CellGment.sam2_automasks(sam2, img_for_viz)
     # Display masks on img
-    Sam2Viz.supervision_show_masks(img_for_viz, auto_masks)
+    Sam2Viz.supervision_show_masks(three_channels_preprocessed_img, auto_masks)
 
 
     # Batch the input boxes (for gpu memory poor) 
