@@ -1,7 +1,7 @@
 
 
 import numpy as np
-np.random.seed(42)
+np.random.seed(0)
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches

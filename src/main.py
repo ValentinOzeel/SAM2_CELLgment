@@ -309,16 +309,66 @@ class CellGment():
         return background_points
 
 
+    @staticmethod
+    def sam2_automasks(sam2, img, points_per_batch=16):
+        mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch)
+        return mask_generator.generate(img)
+    
 
-    # MUCH BETTER RESULTS IF USING BETTER RES IMG SCALING + BETTER MODEL THAN THE TINY ONE
-    # MUCH BETTER RESULTS IF USING BETTER RES IMG SCALING + BETTER MODEL THAN THE TINY ONE
-    # MUCH BETTER RESULTS IF USING BETTER RES IMG SCALING + BETTER MODEL THAN THE TINY ONE    
+    @staticmethod
+    def sam2_predictormasks(sam2, img, point_coords=None, point_labels=None, box=None, batched_box=None, multimask_output=False):
+        def inference(points=None, labels=None, bboxes=None, multi_output=False):
+            masks, scores, logits = predictor.predict(
+                point_coords=points,
+                point_labels=labels, 
+                box=bboxes,
+                multimask_output=multi_output,
+            )
+            return masks, scores, logits
+        
+        def sort_multi_ouput(masks, scores, logits):
+            sorted_ind = np.argsort(scores)[::-1]
+            return masks[sorted_ind], scores[sorted_ind], logits[sorted_ind]
+
+        # Set up predictor   
+        predictor = SAM2ImagePredictor(sam2)
+        predictor.set_image(img)
+
+        # SAM2 Inference
+        mask_results, score_results, logit_results = [], [], []
+        with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16): 
+            if batched_box:
+                for bboxes in batched_box:
+                    masks, scores, logits = inference(
+                        bboxes=bboxes
+                        )
+                    ## Sort if multimask_output=True
+                    if multimask_output:
+                        masks, scores, logits = sort_multi_ouput(masks, scores, logits)
+                        
+                    mask_results.extend(masks)
+                    score_results.extend(scores)
+                    logit_results.extend(logits)
+            
+            else:
+                mask_results, score_results, logit_results = inference(
+                    points=point_coords,
+                    labels=point_labels,
+                    bboxes=box,
+                    multi_output=multimask_output
+                )
+                ## Sort if multimask_output=True
+                if multimask_output:
+                    mask_results, score_results, logit_results = sort_multi_ouput(mask_results, score_results, logit_results)
+            
+        return mask_results, score_results, logit_results
+    
     
 if __name__ == "__main__":
     sam2_checkpoint = "segment-anything-2\checkpoints\sam2_hiera_large.pt"
     model_cfg = "sam2_hiera_l.yaml"
-    img_path = r'src\MicrosoftTeams-image_14.webp'
-    #img_path = r'src\truck.jpg'
+    img_path = r'src\22636-left.png'
+    img_for_viz = np.array(Image.open(img_path).convert("RGB"))
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
 
     ## Load and rescale the image
@@ -342,51 +392,38 @@ if __name__ == "__main__":
     #cell_contour_points = CellGment.get_cell_contours_points(preprocessed_img)
     #background_points = CellGment.get_background_points(preprocessed_img)
 
-    considered_centroids, considered_boxes = touching_c_centroids, individual_c_bboxes+touching_c_bboxes  # Assuming you want to process individual blobs
-    input_points = None #np.array(considered_centroids)
-    pos_labs = [1] #* len(considered_centroids)
-    input_labels = None #np.array(pos_labs)
+    considered_centroids, considered_boxes = individual_c_centroids+touching_c_centroids, individual_c_bboxes+touching_c_bboxes  # Assuming you want to process individual blobs
+    input_points = np.array(considered_centroids)
+    pos_labs = [1] * len(considered_centroids)
+    input_labels = np.array(pos_labs)
     input_boxes = np.array(considered_boxes)
 
 
 
     ##### Generate automatic masks with SAM2 #####
-    mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=16)
-    masks = mask_generator.generate(np.array(Image.open(img_path).convert("RGB")))
-    Sam2Viz.supervision_show_masks(three_channels_preprocessed_img, masks)
+    auto_masks = CellGment.sam2_automasks(sam2, three_channels_preprocessed_img)
+    # Display masks on img
+    Sam2Viz.supervision_show_masks(img_for_viz, auto_masks)
 
-
-
-
-    ##### Predict masks with SAM2ImagePredictor + boxes/prompts #####
-    predictor = SAM2ImagePredictor(sam2)
-    predictor.set_image(three_channels_preprocessed_img)
 
     # Batch the input boxes (for gpu memory poor) 
     split_boxes = np.array_split(input_boxes, 2)
+    
+    ##### Predict masks with SAM2ImagePredictor + boxes/prompts #####
 
+    masks, scores, logits = CellGment.sam2_predictormasks(
+        sam2, three_channels_preprocessed_img, 
+        point_coords=None, point_labels=None, box=None, batched_box=split_boxes, 
+        multimask_output=False
+    )
 
-    # SAM2 Inference
-    mask_results = []
-    with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):  
-        for boxes in split_boxes:
-            masks, scores, logits = predictor.predict(
-                point_coords=None,
-                point_labels=None,
-                box=boxes,
-                multimask_output=False,
-            )
-            ## Sort if multimask_output=True
-            #sorted_ind = np.argsort(scores)[::-1]
-            #masks, scores, logits = masks[sorted_ind], scores[sorted_ind], logits[sorted_ind]
-            print(masks.shape)
-            mask_results.extend(masks)
             
     # Visualize masks
     plt.figure(figsize=(10, 10))
-    plt.imshow(np.array(Image.open(img_path).convert("RGB")))
-    for mask in mask_results:
-        Sam2Viz.show_mask(mask.squeeze(0), plt.gca(), 
+    plt.imshow(three_channels_preprocessed_img)
+    for mask in masks:
+        Sam2Viz.show_mask(mask.squeeze(0),
+                          plt.gca(), 
                           random_color=True, borders=True)
     for box in input_boxes:
         Sam2Viz.show_box(box, plt.gca())
