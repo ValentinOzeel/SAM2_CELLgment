@@ -9,12 +9,6 @@ import matplotlib.pyplot as plt
 
 from visualizations import Sam2Viz
 
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-else:
-    device = torch.device("cpu")
-
-
 from skimage import morphology, feature
 from skimage.segmentation import watershed
 from skimage.measure import regionprops  
@@ -43,7 +37,12 @@ GET_CELL_CONTOUR_POINTS_MAX_SIGMA = config['CONTOUR_AND_BACKGROUND_POINTS']['get
 GET_CELL_CONTOUR_POINTS_THRESHOLD = config['CONTOUR_AND_BACKGROUND_POINTS']['get_cell_contour_points_threshold']
 GET_BACKGROUND_POINTS_MIN_DISTANCE = config['CONTOUR_AND_BACKGROUND_POINTS']['get_background_points_min_distance']
 GET_BACKGROUND_POINTS_THRESHOLD_ABS = config['CONTOUR_AND_BACKGROUND_POINTS']['get_background_points_threshold_abs']
-
+# MODEL
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+SAM2_CHECKPOINT = config['SAM2']['sam2_checkpoint']
+SAM2_CONFIG = config['SAM2']['sam2_model_config']
+SAM2_MULTIMASK = config['SAM2']['multimask_output']
+SAM2_POSTPROCESSING = config['SAM2']['use_sam2_postprocessing']
   
 
 class CellGment():
@@ -365,11 +364,20 @@ class CellGment():
     
     
 if __name__ == "__main__":
+    
+
+    
+    
     sam2_checkpoint = "segment-anything-2\checkpoints\sam2_hiera_large.pt"
     model_cfg = "sam2_hiera_l.yaml"
     img_path = r'src\MicrosoftTeams-image_14.webp'
     img_for_viz = np.array(Image.open(img_path).convert("RGB"))
-    sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
+    sam2 = build_sam2(
+        SAM2_CONFIG, 
+        SAM2_CHECKPOINT, 
+        device=DEVICE, 
+        apply_postprocessing=SAM2_POSTPROCESSING
+    )
 
     ## Load and rescale the image
     #rescaled_raw_img = CellGment.open_and_rescale_img(img_path, 493, 493)
@@ -414,7 +422,7 @@ if __name__ == "__main__":
     masks, scores, logits = CellGment.sam2_predictormasks(
         sam2, three_channels_preprocessed_img, 
         point_coords=None, point_labels=None, box=None, batched_box=split_boxes, 
-        multimask_output=False
+        multimask_output=SAM2_MULTIMASK
     )
 
             

@@ -24,3 +24,9 @@ CONTOUR_AND_BACKGROUND_POINTS:
 
   get_background_points_min_distance: 4
   get_background_points_threshold_abs: 25
+
+SAM2:
+  sam2_checkpoint: "segment-anything-2\checkpoints\sam2_hiera_large.pt"
+  sam2_model_config: "sam2_hiera_l.yaml"
+  multimask_output: True
+  use_sam2_postprocessing: True
